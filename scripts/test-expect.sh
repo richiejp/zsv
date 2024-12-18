@@ -13,7 +13,7 @@ EXPECTED="$EXPECTED_PATH/$TARGET$STAGE".out
 export EXPECTED
 matched=false
 
-t=${EXPECT_TIMEOUT:-5}
+EXPECT_TIMEOUT=${EXPECT_TIMEOUT:-5}
 
 cleanup() {
   if $matched; then
@@ -34,16 +34,33 @@ trap cleanup INT TERM QUIT
 
 printf "\n%s, %s" "$TARGET" "${2:-}" >> "${TIMINGS_CSV}"
 
-set +e
-match_time=$(time -p timeout -k $(( t + 1 )) $t "${script_dir}"/test-retry-capture-cmp.sh 2>&1)
-status=$?
-set -e
+now_seconds() {
+  date +%s
+}
 
-if [ $status -eq 0 ]; then
-  matched=true
-  match_time=$(echo "$match_time" | head -n 1 | cut -f 2 -d ' ')
-  echo "$TARGET$STAGE took $match_time"
-  printf ", %s" "$match_time" >> "${TIMINGS_CSV}"
+start_time=$(now_seconds)
+
+while true; do
+  tmux capture-pane -t "$TARGET" -p > "$CAPTURE"
+  t=$(now_seconds)
+
+  if ${CMP} -s "$CAPTURE" "$EXPECTED"; then
+    matched=true
+    break
+  fi
+
+  if [ $(( t - start_time )) -gt "$EXPECT_TIMEOUT" ]; then
+    break
+  fi
+
+  sleep 0.025
+done
+
+elapsed=$(( t - start_time ))
+
+if [ "$matched" = "true" ]; then
+  echo "$TARGET$STAGE took ${elapsed}s"
+  printf ", %s" "$elapsed" >> "${TIMINGS_CSV}"
 fi
 
 cleanup
